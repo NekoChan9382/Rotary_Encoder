@@ -7,7 +7,7 @@ float PID::calc_output(int goal, int input, float dt){
     int error = goal - input;
     _integral += error * dt;
     float deriv = (input - _last_input) / dt;
-    float output = _kp * error + _ki * _integral + _kd * deriv;
+    float output = _kp * error + _ki * _integral - _kd * deriv;
     _last_input = input;
     return output;
 }
