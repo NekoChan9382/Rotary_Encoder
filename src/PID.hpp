@@ -8,6 +8,7 @@ class PID{
     PID(float kp, float ki, float kd);
     float calc_output(int goal, int input, float dt);
     void reset();
+    void set_gain(float kp, float ki, float kd);
 
     private:
     float _kp;
