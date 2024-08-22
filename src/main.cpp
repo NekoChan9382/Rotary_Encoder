@@ -7,10 +7,10 @@ InterruptIn A_rpt(PB_6, PullUp);
 
 DigitalIn B_rpt(PB_8, PullUp);
 
-PID pid(65, 5, 40);
-/*
+PID pid(100, 5, 40);
+
 CAN can(PA_11, PA_12, 1000000);
-CANMessage msg;*/
+CANMessage msg;
 
 int16_t data[4] = {0};
 
@@ -106,9 +106,9 @@ int main()
     /*A_rpt.fall(&fall_A);
     B_rpt.rise(&rise_B);
     B_rpt.fall(&fall_B);*/
-    uint16_t allowable_error_count = 10;
+    uint16_t allowable_error_count = 3;
     uint16_t speed_limit = 800;
-    int goal = 48;
+    int goal = 12;
 
     while (1)
     {
@@ -126,7 +126,7 @@ int main()
         }
         if (now - pre > 10ms){
 
-        if (abs(goal - count_rot) < allowable_error_count && abs(data[1]) < speed_limit)
+        if (abs(goal - count_rot) < allowable_error_count /*&& abs(data[0]) < speed_limit*/)
         {
             data[1] = 0;
         }
@@ -136,11 +136,11 @@ int main()
             float output = pid.calc_output(goal, count_rot, 0.01);
             int16_t output_int16 = static_cast<int16_t>(output);
             output_int16 = clamps(output_int16, -20000, 20000);
-            data[1] = output_int16;
+            data[0] = output_int16;
         }
-        /*CANMessage msg(4, (const uint8_t *)data, 8);
-        can.write(msg);*/
-        printf("deg: %d , output: %d ,B: %d , rpt: %d , %d\n", count_rot, data[1], B_now, rptable, A_rpt.read());
+        CANMessage msg(4, (const uint8_t *)data, 8);
+        can.write(msg);
+        printf("deg: %d , output: %d ,B: %d , rpt: %d , %d\n", count_rot, data[0], B_now, rptable, A_rpt.read());
         pre = now;
         }
 
