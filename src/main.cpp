@@ -1,148 +1,62 @@
 #include "mbed.h"
-#include "PID.hpp"
+#include "PID_new.hpp"
+
 
 BufferedSerial serial(USBTX, USBRX, 115200);
-
-InterruptIn A_rpt(PB_6, PullUp);
-
-DigitalIn B_rpt(PB_8, PullUp);
-
-PID pid(100, 5, 40);
 
 CAN can(PA_11, PA_12, 1000000);
 CANMessage msg;
 
-int16_t data[4] = {0};
+Pid pid({{400.0,1.2,0.02},20000,-20000}); // P,I,D,Max,Min
 
-volatile int count_rot = 0;
+int16_t datas[4] = {0};
 
-volatile uint8_t rptable = 2;
-volatile bool rpt_B = 1;
-
-void rise_A()
-{
-    if (rptable>=2)
-    {
-        if (B_rpt.read())
-        {
-            count_rot--;
-        }
-        else
-        {
-            count_rot++;
-        }
-        rptable = 0;
-    }
-    rpt_B = 1;
-}
-
-void fall_A()
-{
-    if (rptable)
-    {
-        if (B_rpt.read())
-        {
-            count_rot++;
-        }
-        else
-        {
-            count_rot--;
-        }
-        rptable = 0;
-    }
-}
-
-void rise_B()
-{
-    if (!rptable)
-    {
-        if (A_rpt.read())
-        {
-            count_rot++;
-        }
-        else
-        {
-            count_rot--;
-        }
-        rptable = 1;
-    }
-}
-
-void fall_B()
-{
-    if (!rptable)
-    {
-        if (A_rpt.read())
-        {
-            count_rot--;
-        }
-        else
-        {
-            count_rot++;
-        }
-        rptable = 1;
-    }
-}
-
-int16_t clamps(int value, int min, int max)
-{
-    if (value < min)
-    {
-        return min;
-    }
-    else if (value > max)
-    {
-        return max;
-    }
-    else
-    {
-        return value;
-    }
-}
 
 int main()
 {
-    A_rpt.rise(&rise_A);
-    /*A_rpt.fall(&fall_A);
-    B_rpt.rise(&rise_B);
-    B_rpt.fall(&fall_B);*/
-    uint16_t allowable_error_count = 3;
-    uint16_t speed_limit = 800;
-    int goal = 12;
 
+    int goal = 800;
+    int deg = 0;
+    bool is_sw_push[5];
     while (1)
     {
         auto now = HighResClock::now();
         static auto pre = now;
+        can.read(msg);
 
-        int deg = count_rot * 30;
-
-        bool B_now = B_rpt.read();
-        static bool B_pre = B_now;
-        if (B_now != B_pre && rpt_B){
-            rptable ++;
-            B_pre = B_now;
-            rpt_B=0;
-        }
-        if (now - pre > 10ms){
-
-        if (abs(goal - count_rot) < allowable_error_count /*&& abs(data[0]) < speed_limit*/)
+        if ( msg.id == 10)
         {
-            data[1] = 0;
-        }
-        else
-        {
+            int16_t enc = msg.data[1] << 8 | msg.data[0];
+            float k = 360.0 / (256.0 * 4.0);
+            deg = enc * k;
 
-            float output = pid.calc_output(goal, count_rot, 0.01);
-            int16_t output_int16 = static_cast<int16_t>(output);
-            output_int16 = clamps(output_int16, -20000, 20000);
-            data[0] = output_int16;
         }
-        CANMessage msg(4, (const uint8_t *)data, 8);
-        can.write(msg);
-        printf("deg: %d , output: %d ,B: %d , rpt: %d , %d\n", count_rot, data[0], B_now, rptable, A_rpt.read());
-        pre = now;
+
+        if (msg.id == 9)
+        {
+            uint8_t sw = msg.data[5];
+            
+            for (int i = 0; i < 5; i++)
+            {
+                is_sw_push[i] = (sw >> i) & 0x01;
+            }
+            
         }
+        
+        if (now - pre > 10ms)
+        {
+            datas[1] = pid.calc(goal,deg,0.01) * -1;
+            if (datas[1] < 0 && is_sw_push[0])
+            {
+                datas[1] = 0;
+            }
+            printf("deg: %d, output: %d\n",deg,datas[1]);
+            CANMessage msg1(4, (const uint8_t *)datas, 8);
+            can.write(msg1);
+
+            pre = now;
+        }
+        
 
         
     }
