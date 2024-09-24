@@ -1,159 +1,63 @@
 #include "mbed.h"
+#include "PID_new.hpp"
+
 
 BufferedSerial serial(USBTX, USBRX, 115200);
 
-DigitalIn A_rpt(PB_6, PullUp);
+CAN can(PA_11, PA_12, 1000000);
+CANMessage msg;
 
-DigitalIn B_rpt(PB_8, PullUp);
+Pid pid({{400.0,1.2,0.02},20000,-20000}); // P,I,D,Max,Min
 
-volatile int count_rot = 0;
+int16_t datas[4] = {0};
 
-volatile bool rptable = 1;
-
-bool prevStateA = 0;
-bool prevStateB = 0;
-
-int test;
-bool tests=1;
-
-void rise_A()
-{
-    if (rptable)
-    {
-        if (B_rpt.read())
-        {
-            count_rot--;
-        }
-        else
-        {
-            count_rot++;
-        }
-        rptable=0;
-        
-        test=1;
-        tests=1;
-    }
-}
-
-void fall_A()
-{
-    if (rptable)
-    {
-        if (B_rpt.read())
-        {
-            count_rot++;
-        }
-        else
-        {
-            count_rot--;
-        }
-        rptable=0;
-        
-        test=2;
-        tests=1;
-    }
-}
-
-void rise_B()
-{
-    if (!rptable)
-    {
-        if (A_rpt.read())
-        {
-            count_rot++;
-        }
-        else
-        {
-            count_rot--;
-        }
-        rptable=1;
-        
-        test=3;
-        tests=1;
-    }
-}
-
-void fall_B()
-{
-    if (!rptable)
-    {
-        if (A_rpt.read())
-        {
-            count_rot--;
-        }
-        else
-        {
-            count_rot++;
-        }
-        rptable=1;
-        
-        test=4;
-        tests=1;
-    }
-}
 
 int main()
 {
-    /*A_rpt.rise(&rise_A);
-    A_rpt.fall(&fall_A);
-    B_rpt.rise(&rise_B);
-    B_rpt.fall(&fall_B);
-    tests=1;*/
 
+    int goal = 800;
+    int deg = 0;
+    bool is_sw_push[5];
     while (1)
     {
-        bool stateA = A_rpt.read();
-        bool stateB = B_rpt.read();
+        auto now = HighResClock::now();
+        static auto pre = now;
+        can.read(msg);
 
-        if (prevStateA == 0 && prevStateB == 0)
+        if ( msg.id == 10)
         {
-            if (stateA == 1 && stateB == 0)
-            {
-                count_rot++;
-            }
-            if (stateA == 0 && stateB == 1)
-            {
-                count_rot--;
-            }
+            int16_t enc = msg.data[1] << 8 | msg.data[0];
+            float k = 360.0 / (256.0 * 4.0);
+            deg = enc * k;
+
         }
-        if (prevStateA == 1 && prevStateB == 0)
+
+        if (msg.id == 9)
         {
-            if (stateA == 1 && stateB == 1)
+            uint8_t sw = msg.data[5];
+            
+            for (int i = 0; i < 5; i++)
             {
-                count_rot++;
+                is_sw_push[i] = (sw >> i) & 0x01;
             }
-            if (stateA == 0 && stateB == 0)
-            {
-                count_rot--;
-            }
+            
         }
-        if (prevStateA == 1 && prevStateB == 1)
+        
+        if (now - pre > 10ms)
         {
-            if (stateA == 0 && stateB == 1)
+            datas[1] = pid.calc(goal,deg,0.01) * -1;
+            if (datas[1] < 0 && is_sw_push[0])
             {
-                count_rot++;
+                datas[1] = 0;
             }
-            if (stateA == 1 && stateB == 0)
-            {
-                count_rot--;
-            }
+            printf("deg: %d, output: %d\n",deg,datas[1]);
+            CANMessage msg1(4, (const uint8_t *)datas, 8);
+            can.write(msg1);
+
+            pre = now;
         }
-        if (prevStateA == 0 && prevStateB == 1)
-        {
-            if (stateA == 0 && stateB == 0)
-            {
-                count_rot++;
-            }
-            if (stateA == 1 && stateB == 1)
-            {
-                count_rot--;
-            }
-        }
-        prevStateA = stateA;
-        prevStateB = stateB;
-        //wait_ns(100); // ロリコンここまで
-        int deg = count_rot * 7.5;
-        printf("count_rot: %d , deg: %d\n", count_rot, deg);
-        ThisThread::sleep_for(10ms);
+        
+
+        
     }
 }
